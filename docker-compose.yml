@@ -1,0 +1,12 @@
+services:
+  weather-bot:
+    build: .
+    container_name: weather-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - SUBSCRIPTIONS_FILE=/app/data/subscriptions.json
+    volumes:
+      # Подписки хранятся тут, на хосте — переживают пересборку/перезапуск контейнера
+      - ./data:/app/data
