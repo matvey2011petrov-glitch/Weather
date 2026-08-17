@@ -10,14 +10,18 @@ CITIES = [
     {"name": "Москва", "latitude": 55.7558, "longitude": 37.6173, "timezone": "Europe/Moscow"},
     {"name": "Санкт-Петербург", "latitude": 59.9343, "longitude": 30.3351, "timezone": "Europe/Moscow"},
     {"name": "Новосибирск", "latitude": 55.0084, "longitude": 82.9357, "timezone": "Asia/Novosibirsk"},
-    {"name": "Екатеринбург", "latitude": 56.8389, "longitude": 60.6057, "timezone": "Asia/Yekaterinburg"},
+    {"name": "Шымкент", "latitude": 42.3417, "longitude": 69.5901, "timezone": "Asia/Almaty"},
     {"name": "Казань", "latitude": 55.8304, "longitude": 49.0661, "timezone": "Europe/Moscow"},
     {"name": "Нижний Новгород", "latitude": 56.2965, "longitude": 43.9361, "timezone": "Europe/Moscow"},
     {"name": "Челябинск", "latitude": 55.1644, "longitude": 61.4368, "timezone": "Asia/Yekaterinburg"},
     {"name": "Самара", "latitude": 53.2001, "longitude": 50.1500, "timezone": "Europe/Samara"},
-    {"name": "Омск", "latitude": 54.9885, "longitude": 73.3242, "timezone": "Asia/Omsk"},
+    {"name": "Астана", "latitude": 51.1801, "longitude": 71.4460, "timezone": "Asia/Almaty"},
     {"name": "Ростов-на-Дону", "latitude": 47.2357, "longitude": 39.7015, "timezone": "Europe/Moscow"},
 ]
+
+# Примечание: с 1 марта 2024 года Казахстан перешёл на единый часовой пояс
+# UTC+5 по всей стране — и Астана, и Шымкент теперь используют Asia/Almaty
+# (в базе IANA/tzdata эта зона обновлена под реформу, отдельной зоны не появилось).
 
 CITIES_BY_NAME = {city["name"]: city for city in CITIES}
 

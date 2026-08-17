@@ -5,8 +5,10 @@ Telegram-бот "Погода".
   1. Подписка на ежедневную рассылку погоды: /start -> кнопка "Начать" ->
      выбор города кнопками -> выбор времени кнопками -> готово.
      Погода приходит каждый день в выбранное МЕСТНОЕ время города.
-  2. Разовая проверка погоды: /weather <город> или просто написать
-     название города текстом.
+  2. Разовая проверка погоды: /weather <город>, просто написать
+     название города текстом, или написать что-то вроде "отправь погоду" /
+     "какая погода" — тогда бот пришлёт погоду по городу подписки
+     (если пользователь уже подписан).
   3. /status — посмотреть текущую подписку.
   4. /stop — отписаться от рассылки.
 
@@ -20,6 +22,7 @@ Telegram-бот "Погода".
 
 import logging
 import os
+import string
 from datetime import time as dt_time
 from zoneinfo import ZoneInfo
 
@@ -232,13 +235,48 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/status — посмотреть текущую подписку\n"
         "/stop — отписаться от рассылки\n"
         "/weather <город> — узнать погоду прямо сейчас, разово\n\n"
-        "Также можно просто написать название города текстом — пришлю погоду сейчас."
+        "Также можно просто написать название города текстом — пришлю погоду сейчас.\n"
+        "Или написать «отправь погоду» / «какая погода» без города — пришлю погоду "
+        "по городу твоей подписки (если ты подписан через /start)."
     )
 
 
 # ---------------------------------------------------------------------------
-# Разовая проверка погоды (/weather <город> или просто текст)
+# Разовая проверка погоды (/weather <город>, название города текстом,
+# или фраза-триггер вроде "отправь погоду" / "какая погода")
 # ---------------------------------------------------------------------------
+
+# Слова, которые не являются названием города и их нужно отбросить,
+# если пользователь написал что-то вроде "отправь погоду в Москве"
+WEATHER_TRIGGER_STOPWORDS = {
+    "погода", "погоду", "погоде", "погодку", "погодой", "погод",
+    "отправь", "отправьте", "пришли", "пришлите", "вышли", "вышлите",
+    "покажи", "покажите", "скажи", "скажите", "узнать", "хочу", "надо",
+    "нужна", "нужно", "дай", "дайте", "какая", "какой", "сейчас",
+    "пожалуйста", "плиз", "плз", "бот", "напиши",
+}
+WEATHER_TRIGGER_PREPOSITIONS = {"в", "во", "для", "по", "на"}
+
+
+def looks_like_weather_request(text: str) -> bool:
+    """Грубая проверка: похоже ли сообщение на просьбу прислать погоду без явного города."""
+    return "погод" in text.lower()
+
+
+def extract_city_hint(text: str) -> str:
+    """Убирает из фразы триггерные слова/предлоги, оставляя вероятное название города.
+
+    Например: "отправь погоду в Алматы" -> "Алматы".
+    Если явного города нет ("отправь погоду"), вернёт пустую строку.
+    """
+    kept = []
+    for word in text.strip().split():
+        bare = word.strip(string.punctuation).lower()
+        if bare in WEATHER_TRIGGER_STOPWORDS or bare in WEATHER_TRIGGER_PREPOSITIONS:
+            continue
+        kept.append(word.strip(string.punctuation))
+    return " ".join(kept).strip()
+
 
 async def weather_for_city(update: Update, city_name: str) -> None:
     if not city_name or not city_name.strip():
@@ -265,14 +303,56 @@ async def weather_for_city(update: Update, city_name: str) -> None:
         await update.message.reply_text("Что-то пошло не так. Попробуй ещё раз.")
 
 
+async def reply_weather_for_known_city(update: Update, city_name: str) -> None:
+    """Отправляет погоду по городу из фиксированного списка (без геокодинга)."""
+    city = CITIES_BY_NAME.get(city_name)
+    if city is None:
+        # На всякий случай, если город почему-то не из списка кнопок
+        await weather_for_city(update, city_name)
+        return
+
+    try:
+        current = get_current_weather(city["latitude"], city["longitude"])
+        message = format_weather_message(city_name, current)
+        await update.message.reply_text(message)
+    except requests.RequestException:
+        logger.exception("Ошибка запроса к Open-Meteo")
+        await update.message.reply_text("Не удалось получить данные о погоде. Попробуй ещё раз чуть позже.")
+    except Exception:
+        logger.exception("Неожиданная ошибка")
+        await update.message.reply_text("Что-то пошло не так. Попробуй ещё раз.")
+
+
 async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     city_name = " ".join(context.args) if context.args else ""
     await weather_for_city(update, city_name)
 
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # Любое обычное текстовое сообщение вне сценария подписки трактуем как название города
-    await weather_for_city(update, update.message.text)
+    text = update.message.text or ""
+
+    if looks_like_weather_request(text):
+        city_hint = extract_city_hint(text)
+        if city_hint:
+            # Например: "отправь погоду в Алматы" -> ищем именно Алматы
+            await weather_for_city(update, city_hint)
+            return
+
+        # Город явно не указан ("отправь погоду", "какая погода сейчас") —
+        # берём город из подписки пользователя, если она есть
+        user_id = update.effective_user.id
+        subscription = await storage.get_subscription(user_id)
+        if subscription:
+            await reply_weather_for_known_city(update, subscription["city"])
+        else:
+            await update.message.reply_text(
+                "Для какого города прислать погоду? Напиши, например «погода в Астане», "
+                "или сначала подпишись через /start — тогда я буду знать твой город."
+            )
+        return
+
+    # Иначе — трактуем всё сообщение как название города
+    await weather_for_city(update, text)
 
 
 # ---------------------------------------------------------------------------
